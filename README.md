@@ -6,6 +6,29 @@ Currently, [GloriousEggroll][GE] and [TKG][TKG] are implemented, but the list ca
 
 The script uses Zenity (if its installed) to display a nice GUI, but can be run in CLI-Mode as well, if Zenity is not found.
 
+## Filtering by CPU architecture
+
+GloriousEggroll now publishes an ARM build alongside the usual Intel/AMD one, so the
+list of downloadable builds mixes both. Pick **Architecture filter** in the Proton
+management menu to narrow it to one of:
+
+| Filter | Shows |
+| --- | --- |
+| `all` | every build, whatever it targets (the default) |
+| `x86_64` | 64-bit Intel and AMD builds |
+| `aarch64` | 64-bit ARM builds |
+
+Builds released before the contributors started tagging their archives have no
+architecture in the filename. Those are 64-bit Intel/AMD builds and are listed under
+`x86_64`, which is why that filter still shows the full back catalogue.
+
+The filter lasts for as long as the script is running. To start with one already
+applied, set `PCU_ARCH`:
+
+```sh
+PCU_ARCH=aarch64 ./proton-community-updater.sh
+```
+
 ## Dependencies
 
 - **bash** - obvioulsy 
@@ -22,6 +45,25 @@ From Source:
 3. If you want, move *proton-community-updater-icon.png* to */usr/share/pixmaps/*
 
 For Arch Linux and derivatives: https://aur.archlinux.org/packages/proton-community-updater/
+
+## Development
+
+The architecture filter is covered by [bats](https://github.com/bats-core/bats-core)
+tests. The fixtures are real release asset names captured from the GitHub APIs, so the
+suite runs offline:
+
+```sh
+bats tests
+```
+
+If bats is not installed, the official image works too:
+
+```sh
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/code" -w /code bats/bats:latest tests
+```
+
+The container has to run as the invoking user, because the script refuses to run as
+root and the tests source it.
 
 ## Contributors/recognition:
 - https://github.com/the-sane/lug-helper for the awesome zenity-"framework"
