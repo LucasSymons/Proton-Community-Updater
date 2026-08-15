@@ -429,7 +429,7 @@ proton_select_delete() {
     menu_actions+=(":") # no-op
 
     # Calculate the total height the menu should be
-    menu_height="$(($menu_option_height * ${#menu_options[@]} + $menu_text_height))"
+    menu_height="$((menu_option_height * ${#menu_options[@]} + menu_text_height))"
     if [ "$menu_height" -gt "400" ]; then
         menu_height="400"
     fi
@@ -476,7 +476,7 @@ proton_select_arch() {
     )
 
     # Calculate the total height the menu should be
-    menu_height="$(($menu_option_height * ${#menu_options[@]} + $menu_text_height))"
+    menu_height="$((menu_option_height * ${#menu_options[@]} + menu_text_height))"
 
     # Set the label for the cancel button
     cancel_label="Go Back"
@@ -711,7 +711,7 @@ proton_select_install() {
     menu_actions+=(":") # no-op
 
     # Calculate the total height the menu should be
-    menu_height="$(($menu_option_height * ${#menu_options[@]} + $menu_text_height))"
+    menu_height="$((menu_option_height * ${#menu_options[@]} + menu_text_height))"
     if [ "$menu_height" -gt "400" ]; then
         menu_height="400"
     fi
@@ -789,7 +789,7 @@ proton_manage() {
         fi
         
          # Calculate the total height the menu should be
-        menu_height="$(($menu_option_height * ${#menu_options[@]} + $menu_text_height))"
+        menu_height="$((menu_option_height * ${#menu_options[@]} + menu_text_height))"
         
         # Call the menu function.  It will use the options as configured above
         menu
@@ -929,7 +929,7 @@ while true; do
     menu_actions=("manage_local" "manage_flatpak" "quit")
 
     # Calculate the total height the menu should be
-    menu_height="$(($menu_option_height * ${#menu_options[@]} + $menu_text_height))"
+    menu_height="$((menu_option_height * ${#menu_options[@]} + menu_text_height))"
     
     # Set the label for the cancel button
     cancel_label="Quit"
