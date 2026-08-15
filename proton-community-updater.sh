@@ -36,31 +36,13 @@ proton_sources=(
 # Set a maximum number of proton versions to display from each url
 max_versions=20
 
-############################################################################
-
-# Check if script is run as root
-if [ "$(id -u)" = 0 ]; then
-echo "This script is not supposed to be run as root!"
-exit 1
-fi
-
-# Check for dependencies
-if [ ! -x "$(command -v curl)" ]; then
-# Print to stderr and also try warning the user through notify-send
-    printf "proton-community-updater.sh: The required package 'curl' was not found on this system.\n" 1>&2
-    notify-send "proton-community-updater" "The required package 'curl' was not found on this system.\n" --icon=dialog-warning
-    exit 1
-fi
-if [ ! -x "$(command -v mktemp)" ] || [ ! -x "$(command -v basename)" ]; then
-    # Print to stderr and also try warning the user through notify-send
-    printf "proton-community-updater.sh: One or more required packages were not found on this system.\nPlease check that the following packages are installed:\n- mktemp (part of gnu coreutils)\n- basename (part of gnu coreutils)\n" 1>&2
-    notify-send "proton-community-updater" "One or more required packages were not found on this system.\nPlease check that the following packages are installed:\n- mktemp (part of gnu coreutils)\n- basename (part of gnu coreutils)\n" --icon=dialog-warning
-    exit 1
-fi
-
-# Temporary directory
-tmp_dir="$(mktemp -d --suffix=".proton-community-updater")"
-trap 'rm -r "$tmp_dir"' EXIT
+# Which CPU architecture to list downloadable builds for
+# "all"     - list every build, whatever architecture it targets
+# "x86_64"  - list only 64-bit Intel/AMD builds
+# "aarch64" - list only 64-bit ARM builds
+# Can be changed from the Proton management menu while the script is running,
+# or set for a single run via the PCU_ARCH environment variable
+proton_arch="${PCU_ARCH:-all}"
 
 ############################################################################
 
@@ -321,6 +303,87 @@ steam_restart() {
     steam_needs_restart="false"
 }
 
+# Filter a list of release asset filenames down to a single CPU architecture
+#
+# Expects the desired architecture ("all", "x86_64" or "aarch64") as the first
+# argument, followed by any number of asset filenames. Writes the filenames
+# that match to stdout, one per line, preserving the order they came in so the
+# newest builds stay at the top of the menu.
+#
+# Returns 1 without writing anything if the requested architecture is unknown.
+#
+# Contributors only started tagging their assets with an architecture fairly
+# recently. GloriousEggroll added "-aarch64" from GE-Proton11-1 and "-x86_64"
+# from GE-Proton11-4, and TKG does not use a suffix at all. An asset with no
+# recognised suffix is therefore an x86_64 build, not an unknown one - without
+# that rule an x86_64 filter would hide almost every build ever released.
+proton_filter_by_arch() {
+    if [ "$#" -lt 1 ]; then
+        printf "proton-community-updater.sh: The proton_filter_by_arch function expects an architecture argument.\n" 1>&2
+        return 1
+    fi
+
+    local wanted_arch="$1"
+    shift
+
+    case "$wanted_arch" in
+        all|x86_64|aarch64)
+            ;;
+        *)
+            printf "proton-community-updater.sh: Unknown architecture '%s' passed to proton_filter_by_arch.\n" "$wanted_arch" 1>&2
+            return 1
+            ;;
+    esac
+
+    local asset asset_name asset_arch
+    for asset in "$@"; do
+        # Strip the archive extension so the architecture, when present,
+        # is the last segment of the name
+        case "$asset" in
+            *.tar.gz)  asset_name="${asset%.tar.gz}" ;;
+            *.tgz)     asset_name="${asset%.tgz}" ;;
+            *.tar.xz)  asset_name="${asset%.tar.xz}" ;;
+            *)         asset_name="$asset" ;;
+        esac
+
+        # Classify the asset. Architectures we know about but cannot use are
+        # matched explicitly so they are never mistaken for a legacy build.
+        case "$asset_name" in
+            *-x86_64|*_x86_64|*-amd64|*_amd64)
+                asset_arch="x86_64"
+                ;;
+            *-aarch64|*_aarch64|*-arm64|*_arm64)
+                asset_arch="aarch64"
+                ;;
+            *-riscv64|*_riscv64|*-ppc64le|*_ppc64le|*-i686|*_i686|*-armv7h|*_armv7h)
+                asset_arch="other"
+                ;;
+            *)
+                asset_arch="legacy"
+                ;;
+        esac
+
+        case "$wanted_arch" in
+            all)
+                printf "%s\n" "$asset"
+                ;;
+            x86_64)
+                # Untagged builds predate the suffix and are always x86_64
+                if [ "$asset_arch" = "x86_64" ] || [ "$asset_arch" = "legacy" ]; then
+                    printf "%s\n" "$asset"
+                fi
+                ;;
+            aarch64)
+                if [ "$asset_arch" = "aarch64" ]; then
+                    printf "%s\n" "$asset"
+                fi
+                ;;
+        esac
+    done
+
+    return 0
+}
+
 # Delete the selected proton
 proton_delete() {
     # This function expects an index number for the array
@@ -374,6 +437,50 @@ proton_select_delete() {
     # Set the label for the cancel button
     cancel_label="Go Back"
     
+    # Call the menu function.  It will use the options as configured above
+    menu
+}
+
+# Set the architecture used to filter the list of downloadable builds
+# Expects the new value ("all", "x86_64" or "aarch64") as an argument
+proton_set_arch() {
+    if [ -z "$1" ]; then
+        debug_print exit "Script error:  The proton_set_arch function expects an argument. Aborting."
+    fi
+
+    proton_arch="$1"
+    debug_print continue "Listing $proton_arch Proton builds."
+}
+
+# Choose which architecture the downloadable build lists should be filtered to
+proton_select_arch() {
+    # Configure the menu
+    menu_text_zenity="<b>Only list Proton builds for this architecture</b>\n\nCurrently showing: $proton_arch"
+    menu_text_terminal="Only list Proton builds for this architecture\n\nCurrently showing: $proton_arch"
+    menu_text_height="100"
+    goback="Return to the Proton management menu"
+    unset menu_options
+    unset menu_actions
+
+    menu_options=(
+        "x86_64 - 64-bit Intel and AMD builds"
+        "aarch64 - 64-bit ARM builds"
+        "all - show every build"
+        "$goback"
+    )
+    menu_actions=(
+        "proton_set_arch x86_64"
+        "proton_set_arch aarch64"
+        "proton_set_arch all"
+        ":" # no-op
+    )
+
+    # Calculate the total height the menu should be
+    menu_height="$(($menu_option_height * ${#menu_options[@]} + $menu_text_height))"
+
+    # Set the label for the cancel button
+    cancel_label="Go Back"
+
     # Call the menu function.  It will use the options as configured above
     menu
 }
@@ -536,9 +643,26 @@ proton_select_install() {
         return 1
     fi
 
+    # Narrow the list down to the architecture the user selected
+    if ! filtered_versions="$(proton_filter_by_arch "$proton_arch" "${proton_versions[@]}")"; then
+        debug_print exit "Script error:  Could not filter the proton versions by architecture. Aborting."
+    fi
+    if [ -n "$filtered_versions" ]; then
+        mapfile -t proton_versions <<< "$filtered_versions"
+    else
+        proton_versions=()
+    fi
+
+    # Sanity check.  Unlike the check above, the source responded fine -
+    # there is simply nothing here for the selected architecture.
+    if [ "${#proton_versions[@]}" -eq 0 ]; then
+        message warning "No $proton_arch proton versions were found from this source.\nTry a different architecture filter."
+        return 1
+    fi
+
     # Configure the menu
-    menu_text_zenity="Select the Proton build you want to install:"
-    menu_text_terminal="Select the Proton build you want to install:"
+    menu_text_zenity="Select the Proton build you want to install ($proton_arch):"
+    menu_text_terminal="Select the Proton build you want to install ($proton_arch):"
     menu_text_height="65"
     goback="Return to the Proton management menu"
     unset menu_options
@@ -548,7 +672,12 @@ proton_select_install() {
     # and add them to the menu options
     # To add new file extensions, handle them here and in
     # the proton_install function above
-    for (( i=0; i<"$max_versions" && i<"${#proton_versions[@]}"; i++ )); do
+    # max_versions counts builds actually offered, not assets examined.  Some
+    # contributors publish archive formats this script cannot install (GE ships
+    # a .tar.zst alongside every .tar.gz), and those must not eat into the
+    # number of builds the user gets to choose from.
+    listed_versions=0
+    for (( i=0; i<"${#proton_versions[@]}" && listed_versions<"$max_versions"; i++ )); do
         # Get the proton name minus the file extension
         case "${proton_versions[i]}" in
             *.tar.gz)
@@ -574,6 +703,7 @@ proton_select_install() {
             menu_options+=("$proton_name")
         fi
         menu_actions+=("proton_install $i")
+        listed_versions=$((listed_versions + 1))
     done
 
     # Complete the menu by adding the option to go back to the previous menu
@@ -637,7 +767,13 @@ proton_manage() {
             # Set the corresponding functions to be called for each of the options
             menu_actions+=("proton_select_install $i")
         done
-   
+
+        # Offer the architecture filter applied to the lists above.  This must
+        # stay ahead of the final option because the zenity branch of the menu
+        # function leaves the last entry out of the radio list.
+        menu_options+=("Architecture filter: $proton_arch")
+        menu_actions+=("proton_select_arch")
+
         # Set the label for the cancel button
         if [ "$steam_detected" = "true" ] && [ "$flatpak_detected" = "true" ]; then
             cancel_label="Go Back"
@@ -688,6 +824,49 @@ quit() {
 ############################################################################
 # MAIN
 ############################################################################
+
+# Allow the test suite to load the functions above without starting the
+# program or touching the system
+if [ -n "${PCU_LIB_ONLY:-}" ]; then
+    # "return" only works when the script was sourced.  When it was executed
+    # instead it fails, and the exit takes over - so this is reachable.
+    # shellcheck disable=SC2317
+    return 0 2>/dev/null || exit 0
+fi
+
+# Check if script is run as root
+if [ "$(id -u)" = 0 ]; then
+    echo "This script is not supposed to be run as root!"
+    exit 1
+fi
+
+# Check for dependencies
+if [ ! -x "$(command -v curl)" ]; then
+# Print to stderr and also try warning the user through notify-send
+    printf "proton-community-updater.sh: The required package 'curl' was not found on this system.\n" 1>&2
+    notify-send "proton-community-updater" "The required package 'curl' was not found on this system.\n" --icon=dialog-warning
+    exit 1
+fi
+if [ ! -x "$(command -v mktemp)" ] || [ ! -x "$(command -v basename)" ]; then
+    # Print to stderr and also try warning the user through notify-send
+    printf "proton-community-updater.sh: One or more required packages were not found on this system.\nPlease check that the following packages are installed:\n- mktemp (part of gnu coreutils)\n- basename (part of gnu coreutils)\n" 1>&2
+    notify-send "proton-community-updater" "One or more required packages were not found on this system.\nPlease check that the following packages are installed:\n- mktemp (part of gnu coreutils)\n- basename (part of gnu coreutils)\n" --icon=dialog-warning
+    exit 1
+fi
+
+# Temporary directory
+tmp_dir="$(mktemp -d --suffix=".proton-community-updater")"
+trap 'rm -r "$tmp_dir"' EXIT
+
+# Fall back to listing everything if PCU_ARCH was set to something unusable
+case "$proton_arch" in
+    all|x86_64|aarch64)
+        ;;
+    *)
+        printf "proton-community-updater.sh: Ignoring unknown PCU_ARCH value '%s', listing all architectures.\n" "$proton_arch" 1>&2
+        proton_arch="all"
+        ;;
+esac
 
 # Check if Zenity is available
 use_zenity=0
