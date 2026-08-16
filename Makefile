@@ -6,6 +6,10 @@ DOCKER           ?= docker
 BATS_IMAGE       ?= bats/bats:latest
 SHELLCHECK_IMAGE ?= koalaman/shellcheck:stable
 
+# Keep these in step with the shellcheck hook in .pre-commit-config.yaml,
+# which explains why each rule is excluded.
+SHELLCHECK_ARGS  := --exclude=SC2059,SC2162
+
 # Run containerised tooling as the invoking user. The script refuses to run as
 # root, so a default-root container would fail the moment the tests source it.
 DOCKER_RUN := $(DOCKER) run --rm --user "$(shell id -u):$(shell id -g)"
@@ -26,10 +30,10 @@ test: ## Run the bats test suite (native bats if present, otherwise Docker)
 
 lint: ## Shellcheck the script (native shellcheck if present, otherwise Docker)
 	@if command -v shellcheck >/dev/null 2>&1; then \
-		shellcheck $(SCRIPT); \
+		shellcheck $(SHELLCHECK_ARGS) $(SCRIPT); \
 	else \
 		echo "shellcheck not found locally, using $(SHELLCHECK_IMAGE)"; \
-		$(DOCKER_RUN) -v "$(CURDIR):/mnt" -w /mnt $(SHELLCHECK_IMAGE) $(SCRIPT); \
+		$(DOCKER_RUN) -v "$(CURDIR):/mnt" -w /mnt $(SHELLCHECK_IMAGE) $(SHELLCHECK_ARGS) $(SCRIPT); \
 	fi
 
 check: lint test ## Run both lint and test
