@@ -31,7 +31,7 @@ PCU_ARCH=aarch64 ./proton-community-updater.sh
 
 ## Dependencies
 
-- **bash** - obvioulsy 
+- **bash** - obvioulsy
 - **coreutils** - also pretty obvious
 - **curl**  - to download the release-lists and the selected versions
 - **xz** - to extract the tar.xz archives used by TKG

@@ -105,7 +105,7 @@ message() {
     if [ "$#" -lt 2 ]; then
         debug_print exit "Script error: The message function expects two arguments. Aborting."
     fi
-    
+
     # Use zenity messages if available
     if [ "$use_zenity" -eq 1 ]; then
         case "$1" in
@@ -131,6 +131,9 @@ message() {
 
         # Display the message
         shift 1   # drop the first argument and shift the remaining up one
+        # Deliberate: margs always ends with a bare "--text=" that the
+        # caller's string is concatenated onto, so the join is intended.
+        # shellcheck disable=SC2145
         zenity "${margs[@]}""$@" --width="400" --title="Proton Community Updater" 2>/dev/null
     else
         # Fall back to text-based messages when zenity is not available
@@ -192,7 +195,7 @@ message() {
 #   This text will be displayed above the menu options.
 #   Zenity supports Pango Markup for text formatting.
 # - The integer "menu_height" specifies the height of the zenity menu.
-# 
+#
 # The final element in each array is expected to be a quit option.
 #
 # IMPORTANT: The indices of the elements in "menu_actions"
@@ -216,7 +219,7 @@ menu() {
     elif [ -z "$cancel_label" ]; then
         debug_print exit "Script error: The string 'cancel_label' was not set\nbefore calling the menu function. Aborting."
     fi
-    
+
     # Use Zenity if it is available
     if [ "$use_zenity" -eq 1 ]; then
         # Format the options array for Zenity by adding
@@ -391,7 +394,7 @@ proton_delete() {
     if [ -z "$1" ]; then
         debug_print exit "Script error:  The proton_delete function expects an argument. Aborting."
     fi
-    
+
     proton_to_delete="$1"
     if message question "Are you sure you want to delete the following Proton Build?\n\n${installed_proton[$proton_to_delete]}"; then
         rm -rf "${installed_proton[$proton_to_delete]}"
@@ -410,20 +413,20 @@ proton_select_delete() {
     unset installed_proton
     unset menu_options
     unset menu_actions
-     
+
     # Create an array containing all directories in the proton_dir
     for proton_list in "$proton_dir"/*; do
         if [ -d "$proton_list" ]; then
             installed_proton+=("$proton_list")
         fi
     done
-    
+
     # Create menu options for the installed proton builds
     for (( i=0; i<"${#installed_proton[@]}"; i++ )); do
         menu_options+=("$(basename "${installed_proton[i]}")")
         menu_actions+=("proton_delete $i")
     done
-    
+
     # Complete the menu by adding the option to go back to the previous menu
     menu_options+=("$goback")
     menu_actions+=(":") # no-op
@@ -433,10 +436,10 @@ proton_select_delete() {
     if [ "$menu_height" -gt "400" ]; then
         menu_height="400"
     fi
-    
+
     # Set the label for the cancel button
     cancel_label="Go Back"
-    
+
     # Call the menu function.  It will use the options as configured above
     menu
 }
@@ -560,8 +563,8 @@ proton_install() {
     # Sanity check
     if [ ! -f "$tmp_dir/$proton_file" ]; then
         debug_print exit "Script error:  The requested proton build file was not downloaded. Aborting"
-    fi  
-    
+    fi
+
     # Check if the archive has /files/ folder at top level and deciding wheather or not to create a subfolder
     if tar tf "$tmp_dir/$proton_file" | grep -m 1 -E "^files" > /dev/null; then
         # Create subfolder by the name of $proton_name and extract archive there
@@ -615,13 +618,16 @@ proton_select_install() {
             debug_print exit "Script error:  Unknown api/url format in proton_sources array. Aborting."
             ;;
     esac
-    
+
     # Check for GlibC-Version if TKG is selected, as he requires 2.33
     if [ "$contributor_url" = "https://api.github.com/repos/Frogging-Family/wine-tkg-git/releases" ]; then
         printf "checking for glibc \n"
+        # shellcheck disable=SC2207
         system_glibc=($(ldd --version | awk '/ldd/{print $NF}'))
+        # shellcheck disable=SC2128
         printf "system glibc-versuib: $system_glibc \n"
         required_glibc="2.33"
+        # shellcheck disable=SC2128
         if [ "$(bc <<< "$required_glibc>$system_glibc")" == "1" ]; then
             message warning "Your glibc version is too low, TKG requires v$required_glibc "
             proton_manage
@@ -632,6 +638,9 @@ proton_select_install() {
     # To add new sources, handle them here, in the if statement
     # just above, and the proton_install function above
     if [ "$proton_url_type" = "github" ]; then
+        # SC2063: "*.sha512sum" is a malformed regex that GNU grep only
+        # warns about but stricter greps (ugrep) reject outright.
+        # shellcheck disable=SC2207,SC2063
         proton_versions=($(curl -s "$contributor_url" | awk '/browser_download_url/ {print $2}' | grep -vE "*.sha512sum" | xargs basename -a))
     else
         debug_print exit "Script error:  Unknown api/url format in proton_sources array. Aborting."
@@ -667,7 +676,7 @@ proton_select_install() {
     goback="Return to the Proton management menu"
     unset menu_options
     unset menu_actions
-    
+
     # Iterate through the versions, check if they are installed,
     # and add them to the menu options
     # To add new file extensions, handle them here and in
@@ -695,7 +704,7 @@ proton_select_install() {
         esac
 
         # Add the proton names to the menu
-        if [ $proton_name = "skip" ]; then
+        if [ "$proton_name" = "skip" ]; then
             continue
         elif [ -d "$proton_dir/$proton_name" ]; then
             menu_options+=("$proton_name    [installed]")
@@ -715,10 +724,10 @@ proton_select_install() {
     if [ "$menu_height" -gt "400" ]; then
         menu_height="400"
     fi
-    
+
     # Set the label for the cancel button
     cancel_label="Go Back"
-    
+
     # Call the menu function.  It will use the options as configured above
     menu
 }
@@ -740,11 +749,11 @@ proton_manage() {
         return 0
     fi
 
-    # Check if the proton_dir exists and create it if not    
+    # Check if the proton_dir exists and create it if not
     if [ ! -d "$proton_dir" ]; then
         mkdir -p "$proton_dir"
     fi
-    
+
     # The proton management menu will loop until the user cancels
     looping_menu="true"
     while [ "$looping_menu" = "true" ]; do
@@ -787,10 +796,10 @@ proton_manage() {
             menu_options+=("$delete" "$quit_msg")
             menu_actions+=("proton_select_delete" "quit")
         fi
-        
+
          # Calculate the total height the menu should be
         menu_height="$((menu_option_height * ${#menu_options[@]} + menu_text_height))"
-        
+
         # Call the menu function.  It will use the options as configured above
         menu
     done
@@ -888,7 +897,7 @@ else
     exit 0
 fi
 
-# check if flatpaked steam is installed 
+# check if flatpaked steam is installed
 if [ -d "$steam_dir_flatpak" ]; then
     flatpak_dir="$steam_dir_flatpak/compatibilitytools.d/"
     flatpak_detected="true"
@@ -922,7 +931,7 @@ while true; do
     local_msg="Download or delete custom Proton builds"
     flatpak_msg="Download or delete custom Proton builds in the flatpak installation"
     quit_msg="Quit"
-    
+
     # Set the options to be displayed in the menu
     menu_options=("$local_msg" "$flatpak_msg" "$quit_msg")
     # Set the corresponding functions to be called for each of the options
@@ -930,12 +939,12 @@ while true; do
 
     # Calculate the total height the menu should be
     menu_height="$((menu_option_height * ${#menu_options[@]} + menu_text_height))"
-    
+
     # Set the label for the cancel button
     cancel_label="Quit"
-    
+
     # show a selection menu if both local and flatpaked steam are installed, otherwise call manage directly
-    if [ "$steam_detected" = "true" ] && [ "$flatpak_detected" = "true" ]; then 
+    if [ "$steam_detected" = "true" ] && [ "$flatpak_detected" = "true" ]; then
         menu
     elif [ "$steam_detected" = "true" ]; then
         manage_local
