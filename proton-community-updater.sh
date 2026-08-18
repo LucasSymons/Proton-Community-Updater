@@ -478,6 +478,17 @@ proton_select_arch() {
     # Calculate the total height the menu should be
     menu_height="$(($menu_option_height * ${#menu_options[@]} + $menu_text_height))"
 
+    # zenity 4 (GTK4) refuses to shrink a dialog below the height its text
+    # block needs, so a smaller computed height is silently ignored and the
+    # option list is squeezed down to roughly two visible rows - hiding every
+    # option past the second with no scrollbar to hint at it. Keep a floor
+    # sized from the options actually drawn as list rows; the last entry
+    # becomes the cancel button rather than a row.
+    menu_height_floor="$(( 30 * (${#menu_options[@]} - 1) + 320 ))"
+    if [ "$menu_height" -lt "$menu_height_floor" ]; then
+        menu_height="$menu_height_floor"
+    fi
+
     # Set the label for the cancel button
     cancel_label="Go Back"
 
@@ -790,6 +801,17 @@ proton_manage() {
         
          # Calculate the total height the menu should be
         menu_height="$(($menu_option_height * ${#menu_options[@]} + $menu_text_height))"
+
+        # zenity 4 (GTK4) refuses to shrink a dialog below the height its text
+        # block needs, so a smaller computed height is silently ignored and the
+        # option list is squeezed down to roughly two visible rows - hiding every
+        # option past the second with no scrollbar to hint at it. Keep a floor
+        # sized from the options actually drawn as list rows; the last entry
+        # becomes the cancel button rather than a row.
+        menu_height_floor="$(( 30 * (${#menu_options[@]} - 1) + 320 ))"
+        if [ "$menu_height" -lt "$menu_height_floor" ]; then
+            menu_height="$menu_height_floor"
+        fi
         
         # Call the menu function.  It will use the options as configured above
         menu
