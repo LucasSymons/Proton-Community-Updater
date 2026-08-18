@@ -1,0 +1,30 @@
+---
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-executables-have-shebangs
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.11.0
+    hooks:
+      - id: shellcheck
+        args:
+          # SC2059: deliberate. Messages embed "\n" and rely on printf
+          #         interpreting it, so the zenity text also renders correctly
+          #         in the terminal fallback. Using printf '%s' would print a
+          #         literal backslash-n to the user.
+          # SC2162: read without -r is fine for the "press any key" and [y/n]
+          #         prompts, which never carry backslashes.
+          - --exclude=SC2059,SC2162
