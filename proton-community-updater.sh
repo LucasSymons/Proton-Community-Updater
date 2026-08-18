@@ -387,6 +387,46 @@ proton_filter_by_arch() {
     return 0
 }
 
+# Compare two dotted version strings
+#
+# Returns 0 (true) when the first version is strictly older than the second.
+#
+# This deliberately avoids bc. Version strings are not decimals: bc reads "2.4"
+# as four tenths and so reports glibc 2.4, 2.5 and 2.9 as NEWER than 2.33, which
+# let the TKG glibc guard pass on systems that could not run the build. bc was
+# also never a declared dependency, so on a system without it the comparison
+# produced an empty string and the guard silently skipped. sort -V understands
+# version ordering and comes from coreutils, which is already required.
+proton_version_lt() {
+    if [ "$#" -lt 2 ] || [ -z "$1" ] || [ -z "$2" ]; then
+        printf "proton-community-updater.sh: proton_version_lt expects two version arguments.\n" 1>&2
+        return 2
+    fi
+
+    # Equal versions are not "older"
+    if [ "$1" = "$2" ]; then
+        return 1
+    fi
+
+    # If the pair sorted by version puts the first one first, it is the older
+    [ "$(printf "%s\n%s\n" "$1" "$2" | sort -V | head -n 1)" = "$1" ]
+}
+
+# Turn a GitHub releases API response into a list of installable archive names
+#
+# Reads the API JSON on stdin and writes one bare filename per line.
+#
+# Every release ships a .sha512sum beside each archive; those are dropped so
+# they cannot reach the install menu as builds that cannot be installed. The
+# pattern is anchored on a literal dot: the previous "*.sha512sum" was a
+# malformed regex that GNU grep only warns about but stricter greps (ugrep)
+# reject outright, which failed the whole build listing.
+proton_asset_names() {
+    awk '/browser_download_url/ {print $2}' \
+        | grep -vE '\.sha512sum' \
+        | xargs -r basename -a
+}
+
 # Delete the selected proton
 proton_delete() {
     # This function expects an index number for the array
@@ -633,13 +673,12 @@ proton_select_install() {
     # Check for GlibC-Version if TKG is selected, as he requires 2.33
     if [ "$contributor_url" = "https://api.github.com/repos/Frogging-Family/wine-tkg-git/releases" ]; then
         printf "checking for glibc \n"
-        # shellcheck disable=SC2207
-        system_glibc=($(ldd --version | awk '/ldd/{print $NF}'))
-        # shellcheck disable=SC2128
-        printf "system glibc-versuib: $system_glibc \n"
+        system_glibc="$(ldd --version | awk '/ldd/{print $NF}' | head -n 1)"
+        printf "system glibc-version: %s \n" "$system_glibc"
         required_glibc="2.33"
-        # shellcheck disable=SC2128
-        if [ "$(bc <<< "$required_glibc>$system_glibc")" == "1" ]; then
+        if [ -z "$system_glibc" ]; then
+            message warning "Could not determine the system glibc version.\nTKG requires v$required_glibc - install at your own risk."
+        elif proton_version_lt "$system_glibc" "$required_glibc"; then
             message warning "Your glibc version is too low, TKG requires v$required_glibc "
             proton_manage
         fi
@@ -649,10 +688,8 @@ proton_select_install() {
     # To add new sources, handle them here, in the if statement
     # just above, and the proton_install function above
     if [ "$proton_url_type" = "github" ]; then
-        # SC2063: "*.sha512sum" is a malformed regex that GNU grep only
-        # warns about but stricter greps (ugrep) reject outright.
-        # shellcheck disable=SC2207,SC2063
-        proton_versions=($(curl -s "$contributor_url" | awk '/browser_download_url/ {print $2}' | grep -vE "*.sha512sum" | xargs basename -a))
+        # shellcheck disable=SC2207
+        proton_versions=($(curl -s "$contributor_url" | proton_asset_names))
     else
         debug_print exit "Script error:  Unknown api/url format in proton_sources array. Aborting."
     fi
